@@ -1,0 +1,9 @@
+topic_id,topic_name,topic_description
+0,employee_benefits,"Programs and perks offered to employees beyond their salary, such as health insurance, retirement plans, and paid time off."
+1,employee_training,"Educational programs and development initiatives to enhance employees' skills, knowledge, and performance."
+2,other,Miscellaneous topics that do not fit into specific predefined categories.
+3,payroll,"The process of managing employee salaries, wages, bonuses, deductions, and net pay."
+4,performance_management,Processes and systems used to assess and improve employee performance and productivity.
+5,talent_acquisition,"Strategies and practices for attracting, recruiting, and hiring qualified candidates for job positions."
+6,tax_services,"Services related to the calculation, filing, and compliance with tax obligations for both employees and employers."
+7,time_and_attendance,Systems and practices for tracking and managing employees' working hours and attendance.
