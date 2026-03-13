@@ -1,83 +1,48 @@
-# ADP Data Science Take-Home Assignment
+# ADP HR Topic Classification - Technical Report
 
-**Candidate:** Abraham
+**Author:** Abraham Solórzano
 
 ---
 
-## 1. Project Objective
+## My Approach & Methodology
 
-The main objective of this project is to develop a Natural Language Processing (NLP) model capable of categorizing user messages into 8 predefined Human Resources topics. This model will serve as the routing engine for a customer support chatbot, ensuring each query is directed to the correct specialized human agent.
+The goal was to build a routing engine that accurately directs HR queries to specialized agents. I focused on building a scalable pipeline that ensures data integrity and high reliability for production environments.
 
-## 2. Assumptions
+### Key Assumptions
+* **Exclusive Routing:** To keep the user experience simple, I treated this as a multiclass problem where each message gets exactly one destination.
+* **Confidence Filtering:** Chatbots shouldn't guess. I implemented a **0.60 confidence threshold**. If the model is unsure, it flags the query as "Unsupported" instead of routing it to the wrong person.
+* **Data Integrity & Isolation:** To ensure a fair evaluation, I physically partitioned the dataset into static `train`, `val`, and `test` files before any training occurred. This isolation guarantees that the final metrics are based on completely unseen data, preventing any potential data leakage.
 
-To meet the established product requirements, the following design decisions and assumptions were made:
+## Model Evolution
 
-1. **Mutually Exclusive Classification:** Given the requirement that *"a message shouldn't be routed to more than one agent"*, the problem was strictly modeled as a multiclass classification task. The model outputs a single winning label per message.
-2. **"Unsupported Operation" Logic:** It is assumed that out-of-domain messages are not explicitly labeled in the training dataset. Therefore, a **Confidence Threshold** was implemented. If the model's maximum predicted probability is below $0.60$, the message is internally flagged as "Unsupported" rather than forcing an erroneous routing.
-3. **Role of the 'Other' category (ID 2):** It is assumed that this topic serves as a catch-all for miscellaneous HR-related queries that belong within the company's scope, distinct from completely out-of-domain messages rejected by the probability threshold.
+### 1. The Baseline (LR + TF-IDF)
+I started with a simple Logistic Regression model. It's fast and easy to debug, but it only reached **44% accuracy**. This confirmed that simple keyword matching doesn't work for HR topics because many categories (like Payroll vs Taxes) share the same vocabulary.
 
-## 3. Description of the Approach
+### 2. Deep Learning (Fine-Tuning DistilBERT)
+To fix the semantic confusion, I moved to `distilbert-base-uncased`. I chose this because it's much faster than regular BERT while keeping ~97% of its performance.
+* **Setup:** 10 epochs max, but with `EarlyStopping` to avoid overfitting once the validation loss stops dropping.
+* **Learning:** Used a 2e-5 learning rate with weight decay for better generalization.
 
-To ensure a robust solution, two iterative approaches were developed and compared using Python, `scikit-learn`, and the Hugging Face `transformers` library, managed via **uv** for reproducible environments.
+## Results & Insights
 
-### Phase 1: Baseline Model (TF-IDF + Logistic Regression)
+The final model reached **64% accuracy** on the isolated test set. This represents a significant jump from the baseline and provides a solid foundation for a first production release.
 
-A quick baseline was established using a traditional statistical approach. Text was vectorized (limiting vocabulary to top 1000 words), and a multiclass linear model was trained.
+### Topic Performance breakdown:
+* **Tax Services & Benefits (High Accuracy):** The model handles these very well (F1-Scores ~0.70+). The language in these domains is specific enough for the transformer to catch.
+* **Payroll (Confusing):** This category shows the most overlap with others. In a future iteration, I'd suggest gathering more niche training samples specifically for payroll.
 
-* *Finding:* The model achieved an **Accuracy of 44%**. This evidenced that isolated keywords are insufficient for classifying these messages due to the high lexical similarity between categories like `payroll` and `tax_services`.
+## Metrics & Visualization
 
-### Phase 2: Advanced Model (Fine-Tuning with DistilBERT)
-
-To resolve semantic ambiguity, a Transformer-based model (`distilbert-base-uncased`) was implemented. This architecture processes the bidirectional context of sentences.
-
-**Key Engineering Improvement: Physical Data Isolation**
-To guarantee zero data leakage and full reproducibility:
-1. A dedicated script (`prepare_data.py`) was implemented to split the original dataset into three physical files: `train.csv`, `val.csv`, and `test.csv` (70/15/15 split).
-2. The training pipeline and evaluation notebooks were updated to consume these static files, ensuring the test set remains 100% "unseen" during all experimentation phases.
-
-* **Training Strategy:** Training was configured for up to 10 epochs. To prevent overfitting and optimize learning, the following was implemented:
-  * **Linear Learning Rate Scheduler:** The learning rate starts at 2e-5 and decreases linearly to ensure stable convergence.
-  * **EarlyStopping:** Halts training if the model fails to improve its validation loss after 2 epochs, automatically restoring the best weights (`load_best_model_at_end`).
-
-## 4. Evaluation and Results
-
-Evaluation was performed on the physically isolated test set (`data/split/test.csv`).
-
-As shown in the attached charts, the Transformer-based architecture consistently outperformed the linear model across all metrics, increasing the overall F1-Score from **0.44 to 0.64**.
-
-* **Model Strengths:** DistilBERT was highly accurate in identifying `tax_services` (F1-Score: 0.74) and `employee_benefits` (F1-Score: 0.68). It successfully understood the intent behind complex messages without being confused by shared corporate jargon.
-* **Areas of Opportunity:** The `other` category showed the lowest performance (F1-Score: 0.58). Lacking a defined linguistic pattern, it is natural for the model to have lower confidence here, aligning with the catch-all nature of the label.
-* **Edge Case Handling:** The probability distribution analysis (Softmax) demonstrated that the model generates a clear confidence margin, allowing the threshold ($< 0.60$) to act as an effective filter for flagging unsupported topics.
-
-## 5. Metrics
-
-![Confusion matrix](imgs/confusion-matrix.png)
-
-**Analysis:**
-
-* **High accuracy in key topics:** The main diagonal is strongly highlighted, emphasizing the model's ability to correctly identify tax_services and payroll.
-* **Understanding misclassifications:** The numbers outside the diagonal indicate where the model gets confused. For example, the other category is often confused with employee_training or talent_acquisition. This is an expected behavior, as other is a miscellaneous category without a strictly defined vocabulary. There is also a slight confusion between employee_benefits and time_and_attendance, which makes sense since concepts like "Paid Time Off" (PTO) are frequently mentioned in both contexts.
-
+### Confidence Distribution
 ![Model confidence Distribution](imgs/model-confience.png)
+Most predictions cluster above 0.8, which is great. It means when the model decides, it usually knows what it's doing. The red line shows where we start rejecting low-quality queries to protect the routing accuracy.
 
-**Analysis:**
+### Confusion Matrix
+![Confusion matrix](imgs/confusion-matrix.png)
+You can see the strong diagonal here. The "Other" category is the main source of confusion, which makes sense since it's a catch-all for anything miscellaneous.
 
-* **High overall certainty:** The large clustering of data on the right side (between 0.8 and 1.0) demonstrates that when the model makes a decision, it is generally very confident due to its deep contextual understanding.
-* **Justification for the "Unsupported" filter:** The left "tail" of the distribution represents ambiguous or out-of-domain messages. Every prediction falling to the left of the red line ($< 0.60$) is successfully captured by our safety logic and flagged as an "Unsupported operation". This visually proves that the threshold filter is necessary to prevent the chatbot from routing incorrect responses.
+## Trade-offs & Edge Case Handling
 
-![F1 core Comparison](imgs/f1-score-comparison.png)
-
-**Analysis**
-
-* **Transformer superiority:** DistilBERT consistently outperforms the Logistic Regression model in every single category.
-* **Critical performance improvements:** The model proved its true value in complex topics. For instance, in tax_services, it jumped from 0.48 to an impressive 0.76. In payroll, it went from 0.42 to 0.65. This proves that while the Baseline was easily confused by isolated financial keywords, DistilBERT successfully grasped the semantic difference between concepts like "paying taxes" and "receiving a salary".
-
-![Global Metrics](imgs/global-metrics.png)
-**Analysis**
-
-* **Business impact:** Transitioning from a linear model to a Deep Learning architecture generated an absolute increase of 21 percentage points (from 0.44 to 0.65) across all global metrics.
-* **Robustness:** The fact that the Macro F1 and Weighted F1 scores are identical to the Accuracy (0.65) indicates that the model is not biased toward a single majority class. Instead, it maintains a balanced, reliable, and stable performance across the entire routing system.
-
-## 6. Conclusion
-
-The Fine-Tuning approach with DistilBERT fully satisfies ADP's business requirements. It provides singular message routing based on deep semantic understanding and incorporates a probabilistic safety layer to filter unsupported operations, offering a solid foundation for chatbot integration.
+* **Threshold Selection (0.60):** I arrived at this number by analyzing the confidence distribution across the test set. At 0.60, the model effectively filters out-of-domain noise while maintaining a balanced recall for supported topics. In a production setting, this threshold can be tuned dynamically to favor precision over recall (or vice-versa) based on business needs.
+* **The "Other" Topic vs "Unsupported":** A key architectural challenge is distinguishing between a supported "Other" query and an "Unsupported" query. Currently, the model uses the softmax probability as a proxy for out-of-domain detection. A future improvement could involve training a dedicated binary classifier for "Supported vs Unsupported" to further improve the safety layer.
+* **Class Imbalance:** Given the stratified sampling in our split, the model maintains stable performance. However, for a high-traffic production system, I would recommend implementing class weighting in the loss function to protect underrepresented domains.

@@ -1,49 +1,47 @@
 # HR Topic Classification Project
 
-Este proyecto clasifica mensajes de Recursos Humanos en 8 categorías utilizando un modelo **DistilBERT** ajustado (*fine-tuned*).
+Fine-tuned **DistilBERT** model for HR message routing across 8 categories.
 
-## Estructura del Proyecto
-- `data/`: Contiene los datasets originales.
-- `data/split/`: **(Nuevo)** Datasets divididos físicamente (`train.csv`, `val.csv`, `test.csv`).
-- `notebooks/`: Evaluación visual y análisis del modelo (`distilbert_evaluation.ipynb`).
-- `saved_model/`: El modelo final entrenado y su tokenizador.
-- `prepare_data.py`: Script para realizar la división reproducible de datos.
-- `train.py`: Pipeline de entrenamiento que consume los datos divididos.
-- `predict.py`: Clase `TopicPredictor` para inferencia en producción.
-- `pyproject.toml` / `uv.lock`: Gestión de dependencias con `uv`.
+## Project Architecture
+- `data/split/`: Partitioned datasets (Train/Val/Test) to prevent leakage.
+- `saved_model/`: Final fine-tuned weights and tokenizer.
+- `notebooks/`: Evaluation visuals and confidence analysis.
+- `prepare_data.py`: Pre-processing script for stratified data splitting.
+- `train.py`: Full training pipeline with EarlyStopping.
+- `predict.py`: Core inference logic (threshold: 0.60).
+- `pyproject.toml`: Modern dependency management via **uv**.
 
-## Instalación rápida con `uv`
-Este proyecto utiliza [uv](https://github.com/astral-sh/uv) para una gestión de dependencias ultra-rápida.
+## Getting Started
 
+### 1. Environment Setup
+Requires [uv](https://github.com/astral-sh/uv).
 ```bash
-# 1. Sincronizar entorno y dependencias
 uv sync
+```
 
-# 2. Preparar los datos (Split 70/15/15)
+### 2. Data Preparation
+Splits original data into train/val/test files:
+```bash
 uv run prepare_data.py
 ```
 
-## Uso
-
-### Entrenamiento
-Para re-entrenar el modelo usando los datos aislados:
+### 3. Training
+Fine-tunes the model and exports the best checkpoint to `./saved_model`:
 ```bash
 uv run train.py
 ```
 
-### Evaluación Visual
-Para ver las métricas detalladas y gráficas (Matriz de Confusión, Distribución de Confianza):
+### 4. Evaluation & Tests
+To run requirements-based tests:
+```bash
+uv run test_model.py
+```
+To explore detailed metrics and charts:
 ```bash
 uv run jupyter notebook notebooks/distilbert_evaluation.ipynb
 ```
 
-### Pruebas de Requerimientos
-Para validar que el modelo cumple con el umbral de confianza (60%) y el enrutamiento único:
-```bash
-uv run test_model.py
-```
-
-## Metodología Pro
-- **Aislamiento Total:** Los datos de prueba se separan físicamente antes del entrenamiento para evitar el *Data Leakage*.
-- **Umbral de Confianza:** Las predicciones con < 60% de confianza se marcan como "Operation not supported".
-- **Reproducibilidad:** Uso de `uv.lock` y semillas fijas en el split de datos.
+## Core Features
+- **Semantic Understanding:** Transformer-based architecture to resolve keyword ambiguity.
+- **Safety Threshold:** Rejects low-confidence predictions (< 60%) as "Unsupported".
+- **Reproduction:** Locked dependencies and fixed random seeds for stable results.

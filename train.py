@@ -2,55 +2,80 @@ import pandas as pd
 import numpy as np
 import torch
 import transformers
-from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report
-from transformers import AutoTokenizer, AutoModelForSequenceClassification, Trainer, TrainingArguments, EarlyStoppingCallback
+from sklearn.utils.class_weight import compute_class_weight
+from transformers import (
+    AutoTokenizer, 
+    AutoModelForSequenceClassification, 
+    Trainer, 
+    TrainingArguments, 
+    EarlyStoppingCallback
+)
 from datasets import Dataset
 import os
 
-# Suppress visual warnings
+# Clean logs
 transformers.logging.set_verbosity_error()
 
-def load_pre_split_data(split_dir="data/split"):
-    # Check if files exist, otherwise run preparation
-    if not os.path.exists(os.path.join(split_dir, "train.csv")):
+# Custom Trainer to handle class weights in the loss function
+class WeightedTrainer(Trainer):
+    def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
+        labels = inputs.get("labels")
+        outputs = model(**inputs)
+        logits = outputs.get("logits")
+        
+        # Access weights passed via TrainingArguments
+        weights = torch.tensor(self.args.class_weights, dtype=torch.float).to(labels.device)
+        loss_fct = torch.nn.CrossEntropyLoss(weight=weights)
+        loss = loss_fct(logits.view(-1, self.model.config.num_labels), labels.view(-1))
+        
+        return (loss, outputs) if return_outputs else loss
+
+def get_datasets(split_dir="data/split"):
+    # Run split if CSVs are missing
+    if not os.path.exists(f"{split_dir}/train.csv"):
         from prepare_data import prepare_data
         prepare_data()
 
-    df_train = pd.read_csv(os.path.join(split_dir, "train.csv"))
-    df_val = pd.read_csv(os.path.join(split_dir, "val.csv"))
-    df_test = pd.read_csv(os.path.join(split_dir, "test.csv"))
+    d_train = pd.read_csv(f"{split_dir}/train.csv")
+    d_val = pd.read_csv(f"{split_dir}/val.csv")
+    d_test = pd.read_csv(f"{split_dir}/test.csv")
     
     return (
-        df_train['message'], df_val['message'], df_test['message'],
-        df_train['topic_id'], df_val['topic_id'], df_test['topic_id']
+        d_train['message'], d_val['message'], d_test['message'],
+        d_train['topic_id'], d_val['topic_id'], d_test['topic_id']
     )
 
 def main():
-    print("Starting training pipeline...")
+    print("Training pipeline started (with Class Weights)...")
     
-    # 1. Load data
-    train_texts, val_texts, test_texts, train_labels, val_labels, test_labels = load_pre_split_data()
+    tr_txt, val_txt, ts_txt, tr_lbl, val_lbl, ts_lbl = get_datasets()
     
-    # 2. Tokenization
-    model_ckpt = "distilbert-base-uncased"
-    tokenizer = AutoTokenizer.from_pretrained(model_ckpt)
+    # Calculate class weights to
+    unique_labels = np.sort(np.unique(tr_lbl))
+    weights = compute_class_weight(
+        class_weight='balanced',
+        classes=unique_labels,
+        y=tr_lbl
+    )
     
-    def tokenize_function(examples):
-        return tokenizer(examples["text"], padding="max_length", truncation=True)
+    ckpt = "distilbert-base-uncased"
+    tkz = AutoTokenizer.from_pretrained(ckpt)
     
-    train_ds = Dataset.from_dict({"text": train_texts.tolist(), "label": train_labels.tolist()})
-    val_ds = Dataset.from_dict({"text": val_texts.tolist(), "label": val_labels.tolist()})
-    test_ds = Dataset.from_dict({"text": test_texts.tolist(), "label": test_labels.tolist()})
+    def tokenize(ex):
+        return tkz(ex["text"], padding="max_length", truncation=True)
     
-    tokenized_train = train_ds.map(tokenize_function, batched=True)
-    tokenized_val = val_ds.map(tokenize_function, batched=True)
-    tokenized_test = test_ds.map(tokenize_function, batched=True)
+    ds_train = Dataset.from_dict({"text": tr_txt.tolist(), "label": tr_lbl.tolist()})
+    ds_val = Dataset.from_dict({"text": val_txt.tolist(), "label": val_lbl.tolist()})
+    ds_test = Dataset.from_dict({"text": ts_txt.tolist(), "label": ts_lbl.tolist()})
     
-    # 3. Model Configuration
-    model = AutoModelForSequenceClassification.from_pretrained(model_ckpt, num_labels=8)
+    tk_train = ds_train.map(tokenize, batched=True)
+    tk_val = ds_val.map(tokenize, batched=True)
+    tk_test = ds_test.map(tokenize, batched=True)
     
-    training_args = TrainingArguments(
+    model = AutoModelForSequenceClassification.from_pretrained(ckpt, num_labels=8)
+    
+    args = TrainingArguments(
         output_dir="./model_output",
         eval_strategy="epoch",
         save_strategy="epoch",
@@ -60,36 +85,33 @@ def main():
         weight_decay=0.01,
         load_best_model_at_end=True,
         metric_for_best_model="eval_loss",
-        save_total_limit=2,  # Keep only the 2 best/last checkpoints to save space
-        report_to="none",
-        dataloader_pin_memory=False
+        save_total_limit=1,
+        report_to="none"
     )
     
-    # 4. Training using VALIDATION for evaluation, not TEST
-    trainer = Trainer(
+    # Store weights in the args so they are accessible inside WeightedTrainer
+    args.class_weights = weights.tolist()
+    
+    trainer = WeightedTrainer(
         model=model,
-        args=training_args,
-        train_dataset=tokenized_train,
-        eval_dataset=tokenized_val, 
+        args=args,
+        train_dataset=tk_train,
+        eval_dataset=tk_val, 
         callbacks=[EarlyStoppingCallback(early_stopping_patience=2)]
     )
     
-    print("Training model...")
     trainer.train()
     
-    # 5. Final evaluation on TEST SET (totally blind to the model until now)
-    print("\nEvaluating on Test Set (Isolated)...")
-    predictions = trainer.predict(tokenized_test)
-    preds = np.argmax(predictions.predictions, axis=-1)
+    # Final evaluation on isolated test set
+    print("\n--- Final Test Set Evaluation ---")
+    out = trainer.predict(tk_test)
+    preds = np.argmax(out.predictions, axis=-1)
+    print(classification_report(ts_lbl, preds))
     
-    print("\nFinal Report (Test Set):")
-    print(classification_report(test_labels, preds))
-    
-    # 6. Save final model and tokenizer
-    # Using trainer.save_model ensures the weights from 'load_best_model_at_end' are the ones saved
+    # Export artifacts
     trainer.save_model("./saved_model")
-    tokenizer.save_pretrained("./saved_model")
-    print("Model saved successfully in './saved_model'")
+    tkz.save_pretrained("./saved_model")
+    print("Done. Model artifacts exported to ./saved_model")
 
 if __name__ == "__main__":
     main()
