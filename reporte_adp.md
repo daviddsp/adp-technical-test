@@ -18,7 +18,7 @@ To meet the established product requirements, the following design decisions and
 
 ## 3. Description of the Approach
 
-To ensure a robust solution, two iterative approaches were developed and compared using Python, `scikit-learn`, and the Hugging Face `transformers` library.
+To ensure a robust solution, two iterative approaches were developed and compared using Python, `scikit-learn`, and the Hugging Face `transformers` library, managed via **uv** for reproducible environments.
 
 ### Phase 1: Baseline Model (TF-IDF + Logistic Regression)
 
@@ -30,18 +30,23 @@ A quick baseline was established using a traditional statistical approach. Text 
 
 To resolve semantic ambiguity, a Transformer-based model (`distilbert-base-uncased`) was implemented. This architecture processes the bidirectional context of sentences.
 
-* **Training Strategy:** Training was configured for up to 20 epochs. To prevent overfitting and optimize learning, two Callbacks were implemented:
-  * `ReduceLROnPlateau`: Reduces the learning rate dynamically if the validation loss stagnates.
-  * `EarlyStopping`: Halts training if the model fails to improve after 3 epochs, automatically restoring the best weights (`load_best_model_at_end`).
+**Key Engineering Improvement: Physical Data Isolation**
+To guarantee zero data leakage and full reproducibility:
+1. A dedicated script (`prepare_data.py`) was implemented to split the original dataset into three physical files: `train.csv`, `val.csv`, and `test.csv` (70/15/15 split).
+2. The training pipeline and evaluation notebooks were updated to consume these static files, ensuring the test set remains 100% "unseen" during all experimentation phases.
+
+* **Training Strategy:** Training was configured for up to 10 epochs. To prevent overfitting and optimize learning, the following was implemented:
+  * **Linear Learning Rate Scheduler:** The learning rate starts at 2e-5 and decreases linearly to ensure stable convergence.
+  * **EarlyStopping:** Halts training if the model fails to improve its validation loss after 2 epochs, automatically restoring the best weights (`load_best_model_at_end`).
 
 ## 4. Evaluation and Results
 
-Evaluation was performed on an isolated test set (20% of the original dataset, stratified to maintain class distribution).
+Evaluation was performed on the physically isolated test set (`data/split/test.csv`).
 
-As shown in the attached charts, the Transformer-based architecture consistently outperformed the linear model across all metrics, increasing the overall F1-Score from **0.44 to 0.65**.
+As shown in the attached charts, the Transformer-based architecture consistently outperformed the linear model across all metrics, increasing the overall F1-Score from **0.44 to 0.64**.
 
-* **Model Strengths:** DistilBERT was highly accurate in identifying `tax_services` (F1-Score: 0.76) and `time_and_attendance` (F1-Score: 0.69). It successfully understood the intent behind complex messages without being confused by shared corporate jargon.
-* **Areas of Opportunity:** The `other` category showed the lowest performance (F1-Score: 0.51). Lacking a defined linguistic pattern, it is natural for the model to have lower confidence here, aligning with the catch-all nature of the label.
+* **Model Strengths:** DistilBERT was highly accurate in identifying `tax_services` (F1-Score: 0.74) and `employee_benefits` (F1-Score: 0.68). It successfully understood the intent behind complex messages without being confused by shared corporate jargon.
+* **Areas of Opportunity:** The `other` category showed the lowest performance (F1-Score: 0.58). Lacking a defined linguistic pattern, it is natural for the model to have lower confidence here, aligning with the catch-all nature of the label.
 * **Edge Case Handling:** The probability distribution analysis (Softmax) demonstrated that the model generates a clear confidence margin, allowing the threshold ($< 0.60$) to act as an effective filter for flagging unsupported topics.
 
 ## 5. Metrics

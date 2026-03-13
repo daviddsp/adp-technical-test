@@ -1,67 +1,49 @@
 # HR Topic Classification Project
 
-This project focuses on classifying Human Resources related messages into eight distinct categories using a fine-tuned **DistilBERT** model. The categories include: `employee_benefits`, `employee_training`, `payroll`, `performance_management`, `talent_acquisition`, `tax_services`, `time_and_attendance`, and `other`.
+Este proyecto clasifica mensajes de Recursos Humanos en 8 categorías utilizando un modelo **DistilBERT** ajustado (*fine-tuned*).
 
-## Key Features
-- **Transformer-based Classification**: Uses `distilbert-base-uncased` for efficient and accurate NLP.
-- **Data Leakage Correction**: Implements a strict train/validation/test split (70/15/15) to ensure reliable evaluation.
-- **Confidence Thresholding**: Predictions below a 60% confidence threshold are flagged as "unsupported", preventing low-quality routing.
-- **Ready for Production**: Organized structure with dedicated scripts for training, inference, and testing.
+## Estructura del Proyecto
+- `data/`: Contiene los datasets originales.
+- `data/split/`: **(Nuevo)** Datasets divididos físicamente (`train.csv`, `val.csv`, `test.csv`).
+- `notebooks/`: Evaluación visual y análisis del modelo (`distilbert_evaluation.ipynb`).
+- `saved_model/`: El modelo final entrenado y su tokenizador.
+- `prepare_data.py`: Script para realizar la división reproducible de datos.
+- `train.py`: Pipeline de entrenamiento que consume los datos divididos.
+- `predict.py`: Clase `TopicPredictor` para inferencia en producción.
+- `pyproject.toml` / `uv.lock`: Gestión de dependencias con `uv`.
 
-## Project Structure
-- `data/`: Contains the datasets (`available_conversations.csv` and `available_topics.csv`).
-- `notebooks/`: Exploratory Data Analysis (EDA) and baseline experiments.
-- `model_output/`: Stores checkpoints during training.
-- `saved_model/`: Contains the final fine-tuned model and tokenizer.
-- `imgs/`: Performance visualizations (confusion matrix, metrics comparison, etc.).
-- `train.py`: Script to fine-tune the model.
-- `predict.py`: Contains the `TopicPredictor` class for making inferences.
-- `test_model.py`: Unit tests to verify model behavior and requirements.
-- `reporte_adp.md` / `reporte-adp.pdf`: Comprehensive technical report and analysis.
-- `requirements.txt`: Project dependencies.
+## Instalación rápida con `uv`
+Este proyecto utiliza [uv](https://github.com/astral-sh/uv) para una gestión de dependencias ultra-rápida.
 
-## Installation
-
-### 1. Set up a Virtual Environment
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate  # macOS/Linux
-# .venv\Scripts\activate   # Windows
+# 1. Sincronizar entorno y dependencias
+uv sync
+
+# 2. Preparar los datos (Split 70/15/15)
+uv run prepare_data.py
 ```
 
-### 2. Install Dependencies
+## Uso
+
+### Entrenamiento
+Para re-entrenar el modelo usando los datos aislados:
 ```bash
-pip install -r requirements.txt
+uv run train.py
 ```
 
-## Usage
-
-### Training the Model
-To re-train the model or start from scratch:
+### Evaluación Visual
+Para ver las métricas detalladas y gráficas (Matriz de Confusión, Distribución de Confianza):
 ```bash
-python train.py
-```
-This script will split the data, fine-tune the model, evaluate it on a blind test set, and save the result in `./saved_model`.
-
-### Running Predictions
-You can use the `TopicPredictor` class from `predict.py` in your own scripts:
-
-```python
-from predict import TopicPredictor
-
-predictor = TopicPredictor(model_dir="./saved_model")
-result = predictor.predict("How can I check my payroll deductions?")
-print(result)
-# Output: {'status': 'success', 'topic': 'payroll', 'confidence': 0.98}
+uv run jupyter notebook notebooks/distilbert_evaluation.ipynb
 ```
 
-### Running Tests
-To verify the model meets the technical requirements (single routing, confidence threshold, accuracy on key domains):
+### Pruebas de Requerimientos
+Para validar que el modelo cumple con el umbral de confianza (60%) y el enrutamiento único:
 ```bash
-python test_model.py
+uv run test_model.py
 ```
 
-## Results
-The fine-tuned model significantly outperforms the Logistic Regression baseline, achieving high precision in core HR domains like `payroll` and `tax_services`. Visualizations of the performance can be found in the `imgs/` directory.
-
-For a detailed analysis of the methodology, challenges (imbalanced classes), and future improvements, please refer to [reporte_adp.md](reporte_adp.md).
+## Metodología Pro
+- **Aislamiento Total:** Los datos de prueba se separan físicamente antes del entrenamiento para evitar el *Data Leakage*.
+- **Umbral de Confianza:** Las predicciones con < 60% de confianza se marcan como "Operation not supported".
+- **Reproducibilidad:** Uso de `uv.lock` y semillas fijas en el split de datos.

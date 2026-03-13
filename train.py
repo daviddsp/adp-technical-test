@@ -11,26 +11,26 @@ import os
 # Suppress visual warnings
 transformers.logging.set_verbosity_error()
 
-def load_and_split_data(data_path="data/available_conversations.csv"):
-    df = pd.read_csv(data_path)
+def load_pre_split_data(split_dir="data/split"):
+    # Check if files exist, otherwise run preparation
+    if not os.path.exists(os.path.join(split_dir, "train.csv")):
+        from prepare_data import prepare_data
+        prepare_data()
+
+    df_train = pd.read_csv(os.path.join(split_dir, "train.csv"))
+    df_val = pd.read_csv(os.path.join(split_dir, "val.csv"))
+    df_test = pd.read_csv(os.path.join(split_dir, "test.csv"))
     
-    # 1. Separate Train (70%) and Temp (30%)
-    train_texts, temp_texts, train_labels, temp_labels = train_test_split(
-        df['message'], df['topic_id'], test_size=0.3, random_state=42, stratify=df['topic_id']
+    return (
+        df_train['message'], df_val['message'], df_test['message'],
+        df_train['topic_id'], df_val['topic_id'], df_test['topic_id']
     )
-    
-    # 2. Separate Temp into Validation (15%) and Test (15%)
-    val_texts, test_texts, val_labels, test_labels = train_test_split(
-        temp_texts, temp_labels, test_size=0.5, random_state=42, stratify=temp_labels
-    )
-    
-    return train_texts, val_texts, test_texts, train_labels, val_labels, test_labels
 
 def main():
     print("Starting training pipeline...")
     
     # 1. Load data
-    train_texts, val_texts, test_texts, train_labels, val_labels, test_labels = load_and_split_data()
+    train_texts, val_texts, test_texts, train_labels, val_labels, test_labels = load_pre_split_data()
     
     # 2. Tokenization
     model_ckpt = "distilbert-base-uncased"
@@ -60,6 +60,7 @@ def main():
         weight_decay=0.01,
         load_best_model_at_end=True,
         metric_for_best_model="eval_loss",
+        save_total_limit=2,  # Keep only the 2 best/last checkpoints to save space
         report_to="none",
         dataloader_pin_memory=False
     )
@@ -85,7 +86,8 @@ def main():
     print(classification_report(test_labels, preds))
     
     # 6. Save final model and tokenizer
-    model.save_pretrained("./saved_model")
+    # Using trainer.save_model ensures the weights from 'load_best_model_at_end' are the ones saved
+    trainer.save_model("./saved_model")
     tokenizer.save_pretrained("./saved_model")
     print("Model saved successfully in './saved_model'")
 
